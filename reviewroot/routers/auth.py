@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Response
+from fastapi import APIRouter, HTTPException, Depends, status, Response, Request
 from datetime import datetime
 from bson import ObjectId
-from reviewroot.models.user import UserRegister, UserLogin, UserResponse, UserUpdate
+from jose import jwt, JWTError
+from reviewroot.config import ALGORITHM, SECRET_KEY
+from reviewroot.models.user import UserRegister, UserLogin, UserResponse, UserUpdate, UsersListResponse
 from reviewroot.database import users_collection
 from reviewroot.utils.auth_utils import hash_password, verify_password, create_access_token, create_refresh_token, get_current_user
 
-router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+router = APIRouter(prefix="/api/auth", tags=["User Authentication"])
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(user: UserRegister):
@@ -79,7 +81,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "createdAt": current_user["createdAt"]
     }
 
-@router.put("/me", response_model=UserResponse)
+@router.put("/update-me", response_model=UserResponse)
 async def update_me(update: UserUpdate, current_user: dict = Depends(get_current_user)):
     update_data = {}
     
@@ -127,24 +129,52 @@ async def get_user(username: str):
         "createdAt": user["createdAt"]
     }
 
-# @router.post("/refresh")
-# async def refresh_access_token(refresh_token: str = Body(..., embed=True)):
-#     """
-#     Get new access token using refresh token
+@router.post('/refresh')
+async def refresh_access_token(request: Request, response: Response):
+
+    token = request.cookies.get('refresh_token')
+    if not token:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='No refresh token found')
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get('type') != 'refresh':
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token type')
+        userID = payload.get('sub')
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
     
-#     Body: {"refresh_token": "your_refresh_token_here"}
-#     """
-#     user_id = verify_refresh_token(refresh_token)
+    new_access_token = create_access_token({'sub': userID})
+
+    response.set_cookie(
+            key="access_token",
+            value=new_access_token,
+            httponly=True,
+            max_age=24 * 60 * 60
+        )
     
-#     # Check if user still exists
-#     user = await users_collection.find_one({"_id": ObjectId(user_id)})
-#     if not user:
-#         raise HTTPException(404, "User not found")
+    return {'message': 'Access token refreshed'}
+
+@router.delete('/delete-me')
+async def delete_user(current_user: dict = Depends(get_current_user)):
+    user = await users_collection.find_one({"_id": ObjectId(current_user["_id"])})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
     
-#     # Create new access token
-#     new_access_token = create_token(user_id)
+    result = await users_collection.delete_one({"_id": ObjectId(current_user["_id"])})
     
-#     return {
-#         "message": "Token refreshed successfully",
-#         "accessToken": new_access_token
-#     }
+    if result.deleted_count == 1:
+        return {"message": "User deleted successfully"}
+    else:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Failed to delete user')
+    
+@router.get('/users', response_model=UsersListResponse)
+async def get_all_users(current_user: dict = Depends(get_current_user)):
+    users = await users_collection.find(
+        {"_id": {"$ne": ObjectId(current_user["_id"])}}
+    ).to_list(length=None)
+    
+    # It Convert ObjectId to string for each user
+    for user in users:
+        user["_id"] = str(user["_id"])
+    
+    return {"users": users}
