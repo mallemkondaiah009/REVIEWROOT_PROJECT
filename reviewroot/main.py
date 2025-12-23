@@ -5,7 +5,7 @@ from reviewroot.routers import auth
 
 app = FastAPI(
     title="ReviewRoot API",
-    description="API for code sharing platform",
+    description="API for ReviewRoot platform",
     version="1.0.0"
 )
 
