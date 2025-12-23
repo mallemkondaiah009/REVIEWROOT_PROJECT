@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
 
@@ -37,14 +37,20 @@ class UserLogin(BaseModel):
     password: str
 
 class UserResponse(BaseModel):
-    id: str
+    id: str = Field(alias="_id")  # Maps MongoDB's _id to id
     username: str
     email: str
     avatar: Optional[str] = None
     bio: Optional[str] = None
-    followersCount: int = 0
-    followingCount: int = 0
+    followers: List[str] = []
+    following: List[str] = []
     createdAt: datetime
+    
+    class Config:
+        populate_by_name = True
+
+class UsersListResponse(BaseModel):
+    users: List[UserResponse]
 
 class UserUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=200)
