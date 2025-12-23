@@ -37,7 +37,7 @@ class UserLogin(BaseModel):
     password: str
 
 class UserResponse(BaseModel):
-    id: str = Field(alias="_id")  # Maps MongoDB's _id to id
+    id: str = Field(alias="_id")  # It Maps MongoDB's _id to id
     username: str
     email: str
     avatar: Optional[str] = None
